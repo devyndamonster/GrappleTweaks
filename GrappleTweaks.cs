@@ -27,36 +27,28 @@ namespace GrappleTweaks
             Type type = origComp.GetType();
             if (!allowMismatch && type != copyComp.GetType())
             {
-                OurLogger.LogInfo("Type mismatch, will not copy!");
                 return;
             }
-
-
-            OurLogger.LogInfo("Looping through component and compying data!");
 
             BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Default;
             PropertyInfo[] pinfos = type.GetProperties(flags);
             foreach (var pinfo in pinfos)
             {
 
-                OurLogger.LogInfo("Property: " + pinfo.Name);
                 if (pinfo.CanWrite)
                 {
                     try
                     {
-                        OurLogger.LogInfo("Setting value!");
                         pinfo.SetValue(copyComp, pinfo.GetValue(origComp, null), null);
                     }
                     catch {
-                        OurLogger.LogInfo("Could not set value!");
+                        
                     } 
                 }
             }
             FieldInfo[] finfos = type.GetFields(flags);
             foreach (var finfo in finfos)
             {
-                OurLogger.LogInfo("Field: " + finfo.Name);
-                OurLogger.LogInfo("Setting value!");
                 finfo.SetValue(copyComp, finfo.GetValue(origComp));
             }
         }
@@ -185,51 +177,11 @@ namespace GrappleTweaks
 
 
 
-        [HarmonyPatch(typeof(Speedloader), "OnTriggerEnter")] // Specify target method with HarmonyPatch attribute
+
+        [HarmonyPatch(typeof(GrappleGun), "UpdateInputAndAnimate")] // Specify target method with HarmonyPatch attribute
         [HarmonyPrefix]
-        public static bool TriggerEnterPatch(Speedloader __instance, Collider c)
+        public static bool GrappleInputPatch(GrappleGun __instance)
         {
-            if (__instance.QuickbeltSlot == null)
-            {
-                RevolverCylinder component = c.GetComponent<RevolverCylinder>();
-                if (component != null && component.Revolver.RoundType == __instance.Chambers[0].Type && component.CanAccept())
-                {
-                    __instance.HoveredCylinder = component;
-                }
-                RevolvingShotgunTrigger component2 = c.GetComponent<RevolvingShotgunTrigger>();
-                bool flag = false;
-                if (component2 != null && component2.Shotgun != null && component2.Shotgun.EjectDelay <= 0f && c.gameObject.CompareTag("FVRFireArmReloadTriggerWell") && component2.Shotgun.RoundType == __instance.Chambers[0].Type && __instance.SLType == component2.Shotgun.SLType)
-                {
-                    flag = true;
-                }
-
-                if(component2 != null)
-                {
-                    OurLogger.LogInfo("Component was not null");
-                    OurLogger.LogInfo("Grapple gun: " + component2.GrappleGun.gameObject);
-                    OurLogger.LogInfo("Grapple gun delay: " + component2.GrappleGun.EjectDelay);
-                }
-                else
-                {
-                    OurLogger.LogInfo("Component was null");
-                }
-
-                if (component2 != null && component2.GrappleGun != null && component2.GrappleGun.EjectDelay <= 0f && c.gameObject.CompareTag("FVRFireArmReloadTriggerWell") && component2.GrappleGun.RoundType == __instance.Chambers[0].Type && __instance.SLType == component2.GrappleGun.SLType && __instance.Chambers[0].IsLoaded && !__instance.Chambers[0].IsSpent && __instance.Chambers[1].IsLoaded && !__instance.Chambers[1].IsSpent)
-                {
-                    flag = true;
-                    OurLogger.LogInfo("Hovered!");
-                }
-                else
-                {
-                    OurLogger.LogInfo("Not hovered");
-                }
-
-                if (flag)
-                {
-                    __instance.HoveredRSTrigger = component2;
-                }
-            }
-
             return false;
         }
 
