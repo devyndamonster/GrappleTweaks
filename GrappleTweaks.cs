@@ -138,6 +138,107 @@ namespace GrappleTweaks
         }
 
 
+
+        [HarmonyPatch(typeof(FVRHandGrabPoint), "UpdateInteraction")] // Specify target method with HarmonyPatch attribute
+        [HarmonyPrefix]
+        public static bool UpdateInteractionPatch(FVRHandGrabPoint __instance, FVRViveHand hand)
+        {
+            //Since we can't call the base method UpdateInteraction, we have the contents of that method here
+            __instance.IsHeld = true;
+            __instance.m_hand = hand;
+            if (!__instance.m_hasTriggeredUpSinceBegin && __instance.m_hand.Input.TriggerFloat < 0.15f)
+            {
+                __instance.m_hasTriggeredUpSinceBegin = true;
+            }
+            if (__instance.triggerCooldown > 0f)
+            {
+                __instance.triggerCooldown -= Time.deltaTime;
+            }
+
+
+            //Now we rework sliding so that you can move to next rope in either direction
+            if (__instance.CanSlideOn)
+            {
+                if (hand.OtherHand.CurrentInteractable != null && hand.OtherHand.CurrentInteractable.DoesFunctionAsGrabPoint())
+                {
+                    __instance.m_isSliding = false;
+                    __instance.m_slideSpeed = 0f;
+                }
+                else
+                {
+                    bool flag = false;
+                    if (hand.IsInStreamlinedMode)
+                    {
+                        if (hand.Input.BYButtonPressed)
+                        {
+                            flag = true;
+                        }
+                    }
+                    else if (hand.Input.TouchpadPressed)
+                    {
+                        flag = true;
+                    }
+                    if (flag)
+                    {
+                        __instance.m_isSliding = true;
+                        Vector3 handPosition = hand.Input.Pos;
+                        Vector3 basePointOffset = handPosition - __instance.SlidePoint0.position;
+                        basePointOffset = Vector3.ProjectOnPlane(basePointOffset, __instance.SlidePoint0.up);
+                        basePointOffset = Vector3.ProjectOnPlane(basePointOffset, __instance.SlidePoint0.right);
+                        handPosition = __instance.SlidePoint0.position + basePointOffset;
+                        float distToStart = Vector3.Distance(handPosition, __instance.SlidePoint0.position);
+                        float distToEnd = Vector3.Distance(handPosition, __instance.SlidePoint1.position);
+                        float totalDist = Vector3.Distance(__instance.SlidePoint0.position, __instance.SlidePoint1.position);
+                        if (distToStart > totalDist)
+                        {
+                            //Remove the check for endpoint position comparison
+                            if (__instance.ConnectedGrabPoint_End != null)
+                            {
+                                float slideSpeed = __instance.m_slideSpeed;
+                                __instance.ForceBreakInteraction();
+                                __instance.ConnectedGrabPoint_End.BeginInteraction(hand);
+                                hand.ForceSetInteractable(__instance.ConnectedGrabPoint_End);
+                                __instance.ConnectedGrabPoint_End.SetSlideSpeed(slideSpeed);
+                            }
+
+                            else
+                            {
+                                __instance.ForceBreakInteraction();
+                            }
+
+                        }
+                        else if (distToEnd > totalDist)
+                        {
+                            //Remove the check for endpoint position comparison
+                            if (__instance.ConnectedGrabPoint_Base != null)
+                            {
+                                float slideSpeed2 = __instance.m_slideSpeed;
+                                __instance.ForceBreakInteraction();
+                                __instance.ConnectedGrabPoint_Base.BeginInteraction(hand);
+                                hand.ForceSetInteractable(__instance.ConnectedGrabPoint_Base);
+                                __instance.ConnectedGrabPoint_Base.SetSlideSpeed(slideSpeed2);
+                            }
+
+                            else
+                            {
+                                __instance.ForceBreakInteraction();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        __instance.m_isSliding = false;
+                        __instance.m_slideSpeed = 0f;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+
+
+
         [HarmonyPatch(typeof(GrappleGun), "Awake")] // Specify target method with HarmonyPatch attribute
         [HarmonyPrefix]
         public static bool GrappleSwapPatch(GrappleGun __instance)
@@ -165,9 +266,8 @@ namespace GrappleTweaks
                 trigger.GrappleGun = newGrapple;
             }
 
-
-
             OurLogger.LogInfo("Destroying old grapple comp");
+            oldGrapple.enabled = false;
             Destroy(oldGrapple);
 
             newGrapple.DelayedAwake();
