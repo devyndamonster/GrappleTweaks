@@ -13,6 +13,7 @@ namespace GrappleTweaks
         public bool isBoltPlanted = false;
         public float savedDistance = 0;
         public float retractSpeed = 1;
+        public Vector3 prevVelocityContrib = Vector3.zero;
 
         public override void Awake()
         {
@@ -38,10 +39,9 @@ namespace GrappleTweaks
 
         public override void FVRUpdate()
         {
-            
             UpdateBoltState();
             base.FVRUpdate();
-            UpdateSwing();
+            UpdateSwingWithPosition();
         }
 
 
@@ -63,22 +63,43 @@ namespace GrappleTweaks
             }
         }
 
-        private void UpdateSwing()
+        private void UpdateSwingWithPosition()
         {
             if (ShouldSwing())
             {
+
                 float currDistance = Vector3.Distance(transform.position, m_firstShotBolt.transform.position);
+
+
+
+                //Perform a check to prevent phasing into a wall
+                //Could not get this to behave, but maybe come back to it someday?
+                /*
+                bool updateSwing = currDistance > savedDistance;
+                if (m_hand != null)
+                {
+                    Vector3 handDelta = m_hand.transform.position - transform.position;
+
+                    //Only apply the difference in hand position if there is a wall in the direction of the difference
+                    RaycastHit raycastHit;
+                    if (Physics.Raycast(transform.position, handDelta.normalized, out raycastHit, 0.1f, GM.CurrentMovementManager.LM_TeleCast))
+                    {
+                        moveDelta -= handDelta;
+                        updateSwing = true;
+                    }
+                }
+                */
+
+
                 if (currDistance > savedDistance)
                 {
                     Vector3 moveDelta = (m_firstShotBolt.transform.position - transform.position).normalized * (currDistance - savedDistance);
 
-                    transform.position = transform.position + moveDelta;
-
-                    if(m_hand != null || m_quickbeltSlot != null)
+                    if (m_hand != null || m_quickbeltSlot != null)
                     {
                         GM.CurrentPlayerBody.transform.position = GM.CurrentPlayerBody.transform.position + moveDelta;
 
-                        if(Vector3.Angle(GM.CurrentMovementManager.m_armSwingerVelocity, moveDelta) > 90)
+                        if (Vector3.Angle(GM.CurrentMovementManager.m_armSwingerVelocity, moveDelta) > 90)
                         {
                             GM.CurrentMovementManager.m_armSwingerVelocity = Vector3.ProjectOnPlane(GM.CurrentMovementManager.m_armSwingerVelocity, moveDelta);
                         }
@@ -91,11 +112,85 @@ namespace GrappleTweaks
 
                     else
                     {
+                        transform.position = transform.position + moveDelta;
+
                         if (Vector3.Angle(RootRigidbody.velocity, moveDelta) > 90)
                         {
                             RootRigidbody.velocity = Vector3.ProjectOnPlane(RootRigidbody.velocity, moveDelta);
                         }
                     }
+                }
+            }
+        }
+
+
+        private void UpdateSwingWithVelocity()
+        {
+            if (ShouldSwing())
+            {
+                float currDistance = Vector3.Distance(transform.position, m_firstShotBolt.transform.position);
+
+
+                //Always cancel out the previously added correctional velocities
+                if (m_hand != null || m_quickbeltSlot != null)
+                {
+                    GM.CurrentMovementManager.m_armSwingerVelocity -= prevVelocityContrib;
+                    GM.CurrentMovementManager.m_twoAxisVelocity -= prevVelocityContrib;
+                }
+
+                else
+                {
+                    RootRigidbody.velocity -= prevVelocityContrib;
+                }
+                
+
+
+                //If the distance from the bolt is too much, we should apply a corrective velocity
+                if (currDistance > savedDistance)
+                {
+                    Vector3 moveDelta = (m_firstShotBolt.transform.position - transform.position).normalized * (currDistance - savedDistance);
+
+
+                    //If held by the player, move the player and not the gun
+                    if (m_hand != null || m_quickbeltSlot != null)
+                    {
+                        //Zero out any distancing velocities for the player
+                        if (Vector3.Angle(GM.CurrentMovementManager.m_armSwingerVelocity, moveDelta) > 90 || Vector3.Angle(GM.CurrentMovementManager.m_twoAxisVelocity, moveDelta) > 90)
+                        {
+                            GM.CurrentMovementManager.m_armSwingerVelocity = Vector3.ProjectOnPlane(GM.CurrentMovementManager.m_armSwingerVelocity, moveDelta);
+                            GM.CurrentMovementManager.m_twoAxisVelocity = Vector3.ProjectOnPlane(GM.CurrentMovementManager.m_twoAxisVelocity, moveDelta);
+                        }
+
+                        //Now move the player in the direction of the rope
+                        prevVelocityContrib = moveDelta / Time.deltaTime;
+                        GM.CurrentMovementManager.m_armSwingerVelocity += prevVelocityContrib;
+                        GM.CurrentMovementManager.m_twoAxisVelocity += prevVelocityContrib;
+
+                        //If the player is moving up, remove them from the ground
+                        if (GM.CurrentMovementManager.m_armSwingerVelocity.y > 0 || GM.CurrentMovementManager.m_twoAxisVelocity.y > 0)
+                        {
+                            GM.CurrentMovementManager.DelayGround(0.05f);
+                        }
+                    }
+
+
+
+                    //if not held, move just the gun
+                    else
+                    {
+                        if (Vector3.Angle(RootRigidbody.velocity, moveDelta) > 90)
+                        {
+                            RootRigidbody.velocity = Vector3.ProjectOnPlane(RootRigidbody.velocity, moveDelta);
+                        }
+
+                        prevVelocityContrib = moveDelta / Time.deltaTime;
+                        RootRigidbody.velocity += prevVelocityContrib;
+                    }
+                }
+
+                else
+                {
+                    prevVelocityContrib = Vector3.zero;
                 }
             }
         }
@@ -173,7 +268,7 @@ namespace GrappleTweaks
 
         private void RetractSwing()
         {
-            if (isBoltPlanted)
+            if (isBoltPlanted && m_firstShotBolt != null)
             {
                 savedDistance = Mathf.Min(savedDistance, Vector3.Distance(m_firstShotBolt.transform.position, transform.position)) - (retractSpeed * Time.deltaTime);
             }
@@ -191,7 +286,7 @@ namespace GrappleTweaks
                 {
                     isInSwingMode = !isInSwingMode;
 
-                    Debug.Log("Toggling swing mode to: " + isInSwingMode);
+                    //Debug.Log("Toggling swing mode to: " + isInSwingMode);
                     if (isInSwingMode)
                     {
                         Light_Green.GetComponent<MeshRenderer>().material.SetColor("_EmissionColor", new Color(0, 0, 10, 1));
@@ -208,7 +303,7 @@ namespace GrappleTweaks
                 {
                     isInSwingMode = !isInSwingMode;
 
-                    Debug.Log("Toggling swing mode to: " + isInSwingMode);
+                    //Debug.Log("Toggling swing mode to: " + isInSwingMode);
                     if (isInSwingMode)
                     {
                         Light_Green.GetComponent<MeshRenderer>().material.SetColor("_EmissionColor", new Color(0, 0, 10, 1));

@@ -1,4 +1,5 @@
 ﻿using BepInEx;
+using BepInEx.Configuration;
 using BepInEx.Logging;
 using FistVR;
 using HarmonyLib;
@@ -13,16 +14,34 @@ namespace GrappleTweaks
     {
 
         public static ManualLogSource OurLogger;
+        public static ConfigEntry<float> MaxGrappleRange;
+
+        private static float grappleRange;
 
         public void Awake()
         {
-            Harmony.CreateAndPatchAll(typeof(GrappleTweaks));
-
             OurLogger = BepInEx.Logging.Logger.CreateLogSource("GrappleTweaks");
+
+            LoadConfigFile();
+
+            Harmony.CreateAndPatchAll(typeof(GrappleTweaks));
         }
 
 
-        public static void CopyFields(Component copyComp, Component origComp, bool allowMismatch = false)
+        private void LoadConfigFile()
+        {
+            MaxGrappleRange = Config.Bind(
+                                    "General",
+                                    "MaxGrappleRange",
+                                    15.0f,
+                                    "Sets how far the grapple gun can fire it's first bolt from"
+                                    );
+
+            grappleRange = MaxGrappleRange.Value;
+        }
+
+
+            public static void CopyFields(Component copyComp, Component origComp, bool allowMismatch = false)
         {
             Type type = origComp.GetType();
             if (!allowMismatch && type != copyComp.GetType())
@@ -282,6 +301,47 @@ namespace GrappleTweaks
         [HarmonyPrefix]
         public static bool GrappleInputPatch(GrappleGun __instance)
         {
+            return false;
+        }
+
+
+
+        [HarmonyPatch(typeof(GrappleGun), "CanFireCheck")] // Specify target method with HarmonyPatch attribute
+        [HarmonyPrefix]
+        public static bool GrappleInputPatch(GrappleGun __instance, ref bool __result)
+        {
+            if (!__instance.IsHeld)
+            {
+                __result = false;
+                return false;
+            }
+            if (!__instance.IsMagLoaded)
+            {
+                __result = false;
+                return false;
+            }
+            if (__instance.IsRetracting)
+            {
+                __result = false;
+                return false;
+            }
+            if (__instance.m_firstShotBolt != null && __instance.m_firstShotBolt.HasStruckLink())
+            {
+                __result = false;
+                return false;
+            }
+            if (__instance.Chambers[__instance.m_curChamber].IsSpent || !__instance.Chambers[__instance.m_curChamber].IsFull)
+            {
+                __result = false;
+                return false;
+            }
+            if (__instance.m_curChamber == 0)
+            {
+                __result = Physics.Raycast(__instance.GetMuzzle().position, __instance.GetMuzzle().forward, out __instance.m_hit, grappleRange, __instance.LM_EnvCheck);
+                return false;
+            }
+
+            __result = __instance.m_curChamber == 1 && (__instance.m_firstShotBolt != null && __instance.m_firstShotBolt.HasStruck());
             return false;
         }
 
